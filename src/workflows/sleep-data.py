@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from dotenv import load_dotenv, dotenv_values
@@ -8,14 +8,11 @@ from src.helpers import get_garmin_client, get_notion_client
 # Constants
 local_tz = pytz.timezone("America/Toronto")
 
+LOOKBACK_DAYS = 7  # CONFIG: how many past nights of sleep to pull
+
 # Load environment variables
 load_dotenv()
 CONFIG = dotenv_values()
-
-
-def get_sleep_data(garmin):
-    today = datetime.today().date()
-    return garmin.get_sleep_data(today.isoformat())
 
 
 def format_duration(seconds):
@@ -47,7 +44,7 @@ def sleep_data_exists(client, database_id, sleep_date):
         filter={"property": "Long Date", "date": {"equals": sleep_date}}
     )
     results = query.get('results', [])
-    return results[0] if results else None  # Ensure it returns None instead of causing IndexError
+    return results[0] if results else None
 
 
 def create_sleep_data(client, database_id, sleep_data, skip_zero_sleep=True):
@@ -67,7 +64,7 @@ def create_sleep_data(client, database_id, sleep_data, skip_zero_sleep=True):
     properties = {
         "Date": {"title": [{"text": {"content": format_date_for_name(sleep_date)}}]},
         "Times": {"rich_text": [{"text": {
-            "content": f"{format_time_readable(daily_sleep.get('sleepStartTimestampGMT'))} → {format_time_readable(daily_sleep.get('sleepEndTimestampGMT'))}"}}]},
+            "content": f"{format_time_readable(daily_sleep.get('sleepStartTimestampGMT'))} - {format_time_readable(daily_sleep.get('sleepEndTimestampGMT'))}"}}]},
         "Long Date": {"date": {"start": sleep_date}},
         "Full Date/Time": {"date": {"start": format_time(daily_sleep.get('sleepStartTimestampGMT')),
                                     "end": format_time(daily_sleep.get('sleepEndTimestampGMT'))}},
@@ -90,15 +87,16 @@ def create_sleep_data(client, database_id, sleep_data, skip_zero_sleep=True):
 
 def main():
     load_dotenv()
-
-    # Initialize Garmin and Notion clients using environment variables
     garmin_client, _ = get_garmin_client()
     notion_client, notion_dbs = get_notion_client()
-
     database_id = notion_dbs.sleep
 
-    data = get_sleep_data(garmin_client)
-    if data:
+    today = datetime.today().date()
+    for i in range(LOOKBACK_DAYS):
+        d = (today - timedelta(days=i)).isoformat()
+        data = garmin_client.get_sleep_data(d)
+        if not data:
+            continue
         sleep_date = data.get('dailySleepDTO', {}).get('calendarDate')
         if sleep_date and not sleep_data_exists(notion_client, database_id, sleep_date):
             create_sleep_data(notion_client, database_id, data, skip_zero_sleep=True)
