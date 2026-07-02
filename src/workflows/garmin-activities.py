@@ -10,6 +10,13 @@ from src.helpers import get_garmin_client, get_notion_client
 # Your local time zone, replace with the appropriate one if needed
 local_tz = pytz.timezone('America/Toronto')
 
+# CONFIG: the exact options that exist in your Notion "Activity Type" select.
+KNOWN_ACTIVITY_TYPES = {
+    "Breathwork", "Relaxation", "Cardio", "Cycling", "Hiking", "Rowing",
+    "Running", "Strength", "Stretching", "Swimming", "Walking",
+    "Yoga/Pilates", "Other", "Track Running",
+}
+
 ACTIVITY_ICONS = {
     "Barre": "https://img.icons8.com/?size=100&id=66924&format=png&color=000000",
     "Breathwork": "https://img.icons8.com/?size=100&id=9798&format=png&color=000000",
@@ -78,6 +85,11 @@ def format_activity_type(activity_type: str, activity_name: str = "") -> tuple[s
     if activity_name and "stretch" in activity_name.lower():
         return "Stretching", "Stretching"
 
+    # Fail-safe: anything Notion doesn't have as an option becomes "Other"
+    # (keeps the real name as the subtype so no info is lost).
+    if activity_type not in KNOWN_ACTIVITY_TYPES:
+        activity_subtype = activity_type
+        activity_type = "Other"
     return activity_type, activity_subtype
 
 
@@ -171,21 +183,21 @@ def activity_needs_update(existing_activity: dict, new_activity: dict) -> bool:
         existing_props['Duration (min)']['number'] != round(new_activity.get('duration', 0) / 60, 2) or
         existing_props['Calories']['number'] != round(new_activity.get('calories', 0)) or
         existing_props['Avg Pace']['rich_text'][0]['text']['content'] != format_pace(
-        new_activity.get('averageSpeed', 0)
-    ) or
+            new_activity.get('averageSpeed', 0)
+        ) or
         existing_props['Avg Power']['number'] != round(new_activity.get('avgPower', 0), 1) or
         existing_props['Max Power']['number'] != round(new_activity.get('maxPower', 0), 1) or
         existing_props['Training Effect']['select']['name'] != format_training_effect(
-        new_activity.get('trainingEffectLabel', 'Unknown')
-    ) or
+            new_activity.get('trainingEffectLabel', 'Unknown')
+        ) or
         existing_props['Aerobic']['number'] != round(new_activity.get('aerobicTrainingEffect', 0), 1) or
         existing_props['Aerobic Effect']['select']['name'] != format_training_message(
-        new_activity.get('aerobicTrainingEffectMessage', 'Unknown')
-    ) or
+            new_activity.get('aerobicTrainingEffectMessage', 'Unknown')
+        ) or
         existing_props['Anaerobic']['number'] != round(new_activity.get('anaerobicTrainingEffect', 0), 1) or
         existing_props['Anaerobic Effect']['select']['name'] != format_training_message(
-        new_activity.get('anaerobicTrainingEffectMessage', 'Unknown')
-    ) or
+            new_activity.get('anaerobicTrainingEffectMessage', 'Unknown')
+        ) or
         existing_props['PR']['checkbox'] != new_activity.get('pr', False) or
         existing_props['Fav']['checkbox'] != new_activity.get('favorite', False) or
         existing_props['Activity Type']['select']['name'] != activity_type or
@@ -217,6 +229,8 @@ def create_activity(notion_client: NotionClient, database_id: str, activity: dic
         "Avg Pace": {"rich_text": [{"text": {"content": format_pace(activity.get('averageSpeed', 0))}}]},
         "Avg Power": {"number": round(activity.get('avgPower', 0), 1)},
         "Max Power": {"number": round(activity.get('maxPower', 0), 1)},
+        "Avg HR": {"number": round(activity.get('averageHR', 0) or 0)},
+        "Max HR": {"number": round(activity.get('maxHR', 0) or 0)},
         "Training Effect": {"select": {"name": format_training_effect(activity.get('trainingEffectLabel', 'Unknown'))}},
         "Aerobic": {"number": round(activity.get('aerobicTrainingEffect', 0), 1)},
         "Aerobic Effect": {
@@ -261,6 +275,8 @@ def update_activity(notion_client: NotionClient, existing_activity: dict, new_ac
         "Avg Pace": {"rich_text": [{"text": {"content": format_pace(new_activity.get('averageSpeed', 0))}}]},
         "Avg Power": {"number": round(new_activity.get('avgPower', 0), 1)},
         "Max Power": {"number": round(new_activity.get('maxPower', 0), 1)},
+        "Avg HR": {"number": round(new_activity.get('averageHR', 0) or 0)},
+        "Max HR": {"number": round(new_activity.get('maxHR', 0) or 0)},
         "Training Effect": {
             "select": {"name": format_training_effect(new_activity.get('trainingEffectLabel', 'Unknown'))}
         },
