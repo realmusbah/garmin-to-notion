@@ -4,14 +4,15 @@ from dotenv import load_dotenv
 
 from src.helpers import get_garmin_client, get_notion_client
 
+LOOKBACK_DAYS = 7  # CONFIG: how many past days of steps to pull
+
 
 def get_all_daily_steps(garmin):
     """
-    Get last x days of daily step count data from Garmin Connect.
+    Get the last LOOKBACK_DAYS of daily step count data from Garmin Connect.
     """
-    startdate = date.today() - timedelta(days=1)
-    daterange = [startdate + timedelta(days=x)
-                 for x in range((date.today() - startdate).days)]  # excl. today
+    startdate = date.today() - timedelta(days=LOOKBACK_DAYS)
+    daterange = [startdate + timedelta(days=x) for x in range(LOOKBACK_DAYS)]
     daily_steps = []
     for d in daterange:
         daily_steps += garmin.get_daily_steps(d.isoformat(), d.isoformat())
@@ -117,3 +118,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
