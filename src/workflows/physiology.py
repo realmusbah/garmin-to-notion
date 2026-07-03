@@ -21,6 +21,16 @@ def _safe(fn, *args, default=None):
         return default
 
 
+def _first_item(data):
+    """Return data[0] if it is a non-empty list, data itself if it is a dict, else None.
+    Garmin API responses sometimes flip between a single dict and a one-item list."""
+    if isinstance(data, list):
+        return data[0] if data else None
+    if isinstance(data, dict):
+        return data
+    return None
+
+
 def get_physiology_for_date(garmin, d: str) -> dict:
     """Collect one day's physiology metrics. Keys map to Notion properties.
     NOTE: method names match cyberjunky/python-garminconnect. If a call fails,
@@ -35,30 +45,46 @@ def get_physiology_for_date(garmin, d: str) -> dict:
 
     # Resting HR
     hr = _safe(garmin.get_heart_rates, d)
-    if hr:
+    if hr and isinstance(hr, dict):
         metrics["resting_hr"] = hr.get("restingHeartRate")
 
-    # HRV (last night avg)
-    hrv = _safe(garmin.get_hrv_data, d)
-    if hrv:
-        summary = hrv.get("hrvSummary", {}) or {}
-        metrics["hrv"] = summary.get("lastNightAvg")
+    # HRV (last night avg) — API may return a list or a dict depending on library version
+    hrv_raw = _safe(garmin.get_hrv_data, d)
+    if hrv_raw:
+        hrv = _first_item(hrv_raw)
+        if hrv and isinstance(hrv, dict):
+            summary = hrv.get("hrvSummary", {}) or {}
+            metrics["hrv"] = summary.get("lastNightAvg")
 
-    # Training readiness
-    tr = _safe(garmin.get_training_readiness, d)
-    if tr and isinstance(tr, list) and tr:
-        metrics["readiness"] = tr[0].get("score")
+    # Training Readiness — Forerunner 255/265 supports this endpoint but Garmin
+    # has used at least three different score key names across firmware/API versions.
+    # Try them all so a key-name change doesn't silently produce null forever.
+    tr_raw = _safe(garmin.get_training_readiness, d)
+    if tr_raw:
+        tr = _first_item(tr_raw)
+        if tr and isinstance(tr, dict):
+            score = tr.get("score")
+            if score is None:
+                score = tr.get("trainingReadinessScore")
+            if score is None:
+                score = tr.get("value")
+            metrics["readiness"] = score
 
-    # Body battery peak
+    # Body battery peak — values array is [[timestamp_ms, level], ...]
     bb = _safe(garmin.get_body_battery, d, d)
     if bb and isinstance(bb, list) and bb:
-        levels = [x[1] for x in bb[0].get("bodyBatteryValuesArray", []) if x and x[1] is not None]
+        raw_vals = bb[0].get("bodyBatteryValuesArray", []) or []
+        levels = [
+            entry[1]
+            for entry in raw_vals
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2 and entry[1] is not None
+        ]
         if levels:
             metrics["body_battery_peak"] = max(levels)
 
     # Sleep score
     sleep = _safe(garmin.get_sleep_data, d)
-    if sleep:
+    if sleep and isinstance(sleep, dict):
         scores = (sleep.get("dailySleepDTO", {}) or {}).get("sleepScores", {}) or {}
         metrics["sleep_score"] = (scores.get("overall", {}) or {}).get("value")
 
